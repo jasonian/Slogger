@@ -14,20 +14,38 @@ Notes:
 
 =end
 config = {
-  'pinboard_description' => [
-    'Logs bookmarks for today from Pinboard.in.',
-    'pinboard_feeds is an array of one or more Pinboard RSS feeds'],
-  'pinboard_feeds' => [],
-  'pinboard_tags' => '#social #bookmarks',
-  'pinboard_save_hashtags' => true,
-  'pinboard_digest' => true
+    'pinboard_description' => [
+        'Logs bookmarks for today from Pinboard.in.',
+        'pinboard_feeds is an array of one or more Pinboard RSS feeds',
+        'pinboard_digest true will group all new bookmarks into one post, false will split them into individual posts dated when the bookmark was created'],
+    'pinboard_feeds' => [],
+    'pinboard_tags' => '#social #bookmarks',
+    'pinboard_save_hashtags' => true,
+    'pinboard_digest' => true
 }
-$slog.register_plugin({ 'class' => 'PinboardLogger', 'config' => config })
+$slog.register_plugin({'class' => 'PinboardLogger', 'config' => config})
 
 require 'rexml/document'
 require 'rss/dublincore'
 
 class PinboardLogger < Slogger
+  def split_days(bookmarks)
+    # tweets.push({:text => tweet_text, :date => tweet_date, :screen_name => screen_name, :images => tweet_images, :id => tweet_id})
+    dated_bookmarks = {}
+    bookmarks.each {|mark|
+      date = mark[:date].strftime('%Y-%m-%d')
+      dated_bookmarks[date] = [] unless dated_bookmarks[date]
+      dated_bookmarks[date].push(mark)
+    }
+    dated_bookmarks
+  end
+
+  def digest_entry(bookmarks, tags)
+    bookmarks.reverse.map do |t|
+      t[:content]
+    end.join("\n") << "\n#{tags.strip}"
+  end
+
   def do_log
     if @config.key?(self.class.name)
       config = @config[self.class.name]
@@ -42,11 +60,12 @@ class PinboardLogger < Slogger
 
     sl = DayOne.new
     config['pinboard_tags'] ||= ''
-    tags = "\n\n#{config['pinboard_tags']}\n" unless config['pinboard_tags'] == ''
+    tags = "\n\n(#{config['pinboard_tags'].strip})\n" unless config['pinboard_tags'] == ''
     today = @timespan.to_i
 
     @log.info("Getting Pinboard bookmarks for #{config['pinboard_feeds'].length} feeds")
-    output = ''
+    feed_link = ''
+    feed_output = []
 
     config['pinboard_feeds'].each do |rss_feed|
       begin
@@ -56,46 +75,50 @@ class PinboardLogger < Slogger
         end
 
         rss = RSS::Parser.parse(rss_content, false)
-        feed_output = ''
+
         rss.items.each { |item|
-          feed_output = '' unless config['pinboard_digest']
+          feed_output = [] unless config['pinboard_digest']
           item_date = Time.parse(item.date.to_s) + Time.now.gmt_offset
           if item_date > @timespan
             content = ''
             post_tags = ''
             if config['pinboard_digest']
-              content = "\n\n        " + item.description.gsub(/\n/, "\n        ").strip unless item.description.nil?
+              content = "\n\t" + item.description.gsub(/\n/, "\n\t").strip unless item.description.nil?
             else
-              content = "\n\n> " + item.description.gsub(/\n/, "\n> ").strip unless item.description.nil?
+              content = "\n> " + item.description.gsub(/\n/, "\n> ").strip unless item.description.nil?
             end
+            content = "#{content}\n" unless content == ''
             if config['pinboard_save_hashtags']
-              post_tags = "\n    " + item.dc_subject.split(' ').map {|tag| "##{tag}"}.join(' ') + "\n" unless item.dc_subject.nil?
+              post_tags = "\n\t\t" + item.dc_subject.split(' ').map { |tag| "##{tag}" }.join(' ') + "\n" unless item.dc_subject.nil?
             end
-            feed_output += "#{config['pinboard_digest'] ? '* ' : ''}[#{item.title.gsub(/\n/, ' ').strip}](#{item.link})#{content}#{post_tags}"
+
+            feed_output.push({:date => Time.parse(item.date.to_s), :content => "#{config['pinboard_digest'] ? '* ' : ''}[#{item.title.gsub(/\n/, ' ').strip}](#{item.link})\n#{content}#{post_tags}"})
           else
             break
           end
-          if config['pinboard_digest']
-            output = feed_output
-            unless output == ''
-              options = {}
-              options['datestamp'] = Time.parse(item.date.to_s).utc.iso8601
-              options['content'] = "## New Pinboard bookmark\n#{output}#{tags}"
-              sl.to_dayone(options)
-            end
+          output = feed_output[0][:content] unless feed_output[0].nil? or config['pinboard_digest']
+          unless output == '' || config['pinboard_digest']
+            options = {}
+            options['datestamp'] = feed_output[0][:date].utc.iso8601
+            options['content'] = "## New Pinboard bookmark\n#{output}#{tags.strip}"
+            sl.to_dayone(options)
           end
         }
-        output += "#### [#{rss.channel.title}](#{rss.channel.link})\n\n" + feed_output + "\n" unless feed_output == ''
+        feed_link = "[#{rss.channel.title}](#{rss.channel.link})" unless feed_output.empty?
       rescue Exception => e
         puts "Error getting posts for #{rss_feed}"
         p e
-        return ''
+        return
       end
     end
-    unless output == '' || !config['pinboard_digest']
-      options = {}
-      options['content'] = "## Pinboard bookmarks\n\n#{output}#{tags}"
-      sl.to_dayone(options)
+    unless feed_link == '' || !config['pinboard_digest']
+      dated_marks = split_days(feed_output)
+      dated_marks.each {|k,v|
+        content = "## Pinboard bookmarks\n\n### #{feed_link} on #{Time.parse(k).strftime(@date_format)}\n\n"
+        content << digest_entry(v, tags)
+        sl.to_dayone({'content' => content, 'datestamp' => Time.parse(k).utc.iso8601})
+      }
     end
+    return
   end
 end

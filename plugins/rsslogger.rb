@@ -60,7 +60,7 @@ class RSSLogger < Slogger
   def parse_feed(rss_feed)
 
     tags = @rssconfig['tags'] || ''
-    tags = "\n\n#{tags}\n" unless tags == ''
+    tags = "\n\n(#{tags})\n" unless tags == ''
 
     today = @timespan
     begin
@@ -88,7 +88,8 @@ class RSSLogger < Slogger
       rss = RSS::Parser.parse(rss_content, false)
       feed_items = []
       rss.items.each { |item|
-        item_date = Time.parse(item.date.to_s) + Time.now.gmt_offset
+        rss_date = item.date || item.updated
+        item_date = Time.parse(rss_date.to_s) + Time.now.gmt_offset
         if item_date > today
           feed_items.push("* [#{item.title.gsub(/\n+/,' ').strip}](#{item.link})")
         else

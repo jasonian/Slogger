@@ -1,22 +1,22 @@
 =begin
 Plugin: Instapaper Logger
-Version: 1.0
+Version: 1.0.1
 Description: Logs today's additions to Instapaper.
 Notes:
   instapaper_feeds is an array of Instapaper RSS feeds
-  - Find the RSS feed for any folder at the bottom of the web interface page for that folder
+  - Find the RSS feed for any folder by inspecting the HTML source for a URL with type "application/rss+xml",
+    and then prefix with 'https://www.instapaper.com/'
+  - Seems to now need to use a secure connction to Instapaper
 Author: [Brett Terpstra](http://brettterpstra.com)
 Configuration:
-  instapaper_feeds: [ 'http://www.instapaper.com/rss/106249/XXXXXXXXXXXXXX']
+  instapaper_feeds: [ 'https://www.instapaper.com/rss/106249/XXXXXXXXXXXXXX']
   instapaper_tags: "#social #reading"
-Notes:
-
 =end
 config = {
   'instapaper_description' => [
     'Logs today\'s posts to Instapaper.',
     'instapaper_feeds is an array of one or more RSS feeds',
-  'Find the RSS feed for any folder at the bottom of a web interface page'],
+    'Find the RSS feed for any folder at the bottom of a web interface page'],
   'instapaper_feeds' => [],
   'instapaper_include_content_preview' => true,
   'instapaper_tags' => '#social #reading'
@@ -40,7 +40,7 @@ class InstapaperLogger < Slogger
 
     sl = DayOne.new
     config['instapaper_tags'] ||= ''
-    tags = "\n\n#{config['instapaper_tags']}\n" unless config['instapaper_tags'] == ''
+    tags = "\n\n(#{config['instapaper_tags']})\n" unless config['instapaper_tags'] == ''
     today = @timespan.to_i
 
     @log.info("Getting Instapaper posts for #{config['instapaper_feeds'].length} accounts")
@@ -62,7 +62,11 @@ class InstapaperLogger < Slogger
             feed_output += "* [#{item.title}](#{item.link})\n"
             feed_output += "\n     #{content}\n" if config['instapaper_include_content_preview'] == true
           else
-            break
+            # The archive orders posts inconsistenly so older items can
+            # show up before newer ones
+            if rss.channel.title != "Instapaper: Archive"
+              break
+            end
           end
         }
         output += "#### #{rss.channel.title}\n\n" + feed_output + "\n" unless feed_output == ''

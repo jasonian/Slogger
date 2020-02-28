@@ -7,6 +7,7 @@ Notes:
 Author: [Brett Terpstra](http://brettterpstra.com)
 Configuration:
   pocket_username: 'your_username'
+  pocket_passwd: "your_password" // if RSS Feed password protection is on
   pocket_tags: "#social #reading"
 Notes:
 
@@ -14,8 +15,10 @@ Notes:
 config = {
   'pocket_description' => [
     'Logs today\'s posts to Pocket.',
-    'pocket_username is a string with your Pocket username'],
+    'pocket_username is a string with your Pocket username',
+    'pocket_passwd is a string with your Pocket password'],
   'pocket_username' => '',
+  'pocket_passwd' => '',
   'pocket_tags' => '#social #reading'
 }
 $slog.register_plugin({ 'class' => 'PocketLogger', 'config' => config })
@@ -38,14 +41,15 @@ class PocketLogger < Slogger
     sl = DayOne.new
     config['pocket_tags'] ||= ''
     username = config['pocket_username']
-    tags = "\n\n#{config['pocket_tags']}\n" unless config['pocket_tags'] == ''
+    password = config['pocket_passwd']
+    tags = "\n\n(#{config['pocket_tags']})\n" unless config['pocket_tags'] == ''
     today = @timespan
 
     @log.info("Getting Pocket posts for #{username}")
     output = ''
 
     ["read","unread"].each {|kind|
-      rss_feed = "http://getpocket.com/users/#{username.strip}/feed/#{kind}"
+      rss_feed = "https://getpocket.com/users/#{username.strip}/feed/#{kind}"
       title = case kind
       when "read" then "### Items read today:"
       when "unread" then "### Items saved today:"
@@ -53,7 +57,7 @@ class PocketLogger < Slogger
 
       begin
         rss_content = ""
-        open(rss_feed) do |f|
+        open(rss_feed, http_basic_authentication: [username, password]) do |f|
           rss_content = f.read
         end
         tempoutput = ""

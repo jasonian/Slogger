@@ -32,7 +32,7 @@ class GithubLogger < Slogger
     end
     @log.info("Logging Github activity for #{config['github_user']}")
     begin
-      url = URI.parse "https://github.com/#{config['github_user'].strip}.json"
+      url = URI.parse "https://api.github.com/users/#{config['github_user'].strip}/events"
 
       http = Net::HTTP.new url.host, url.port
       http.verify_mode = OpenSSL::SSL::VERIFY_NONE
@@ -58,20 +58,20 @@ class GithubLogger < Slogger
       if date > @timespan
         case action['type']
           when "PushEvent"
-            if !action["repository"]
-              action['repository'] = {"name" => "unknown repository"}
+            if !action["repo"]
+              action['repo'] = {"name" => "unknown repo"}
             end
-            output += "* Pushed to branch *#{action['payload']['ref'].gsub(/refs\/heads\//,'')}* of [#{action['repository']['name']}](#{action['url']})\n"
-            action['payload']['shas'].each do |sha|
-              output += "    * #{sha[2].gsub(/\n+/," ")}\n" unless sha.length < 3
+            output += "* Pushed to branch *#{action['payload']['ref'].gsub(/refs\/heads\//,'')}* of [#{action['repo']['name']}](#{action['url']})\n"
+            action['payload']['commits'].each do |commits|
+              output += "    * #{commits["message"]}\n"
             end
           when "GistEvent"
             output += "* Created gist [#{action['payload']['name']}](#{action['payload']['url']})\n"
             output += "    * #{action['payload']['desc'].gsub(/\n/," ")}\n" unless action['payload']['desc'].nil?
           when "WatchEvent"
             if action['payload']['action'] == "started"
-              output += "* Started watching [#{action['repository']['owner']}/#{action['repository']['name']}](#{action['repository']['url']})\n"
-              output += "    * #{action['repository']['description'].gsub(/\n/," ")}\n" unless action['repository']['description'].nil?
+              output += "* Started watching [#{action['repo']['owner']}/#{action['repo']['name']}](#{action['repo']['url']})\n"
+              output += "    * #{action['repo']['description'].gsub(/\n/," ")}\n" unless action['repo']['description'].nil?
             end
         end
       else
@@ -80,7 +80,7 @@ class GithubLogger < Slogger
     }
 
     return false if output.strip == ""
-    entry = "## Github activity for #{Time.now.strftime(@date_format)}:\n\n#{output}\n#{config['github_tags']}"
+    entry = "## Github activity for #{Time.now.strftime(@date_format)}:\n\n#{output}\n(#{config['github_tags']})"
     DayOne.new.to_dayone({ 'content' => entry })
   end
 
